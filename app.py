@@ -3,7 +3,31 @@ from streamlit_gsheets import GSheetsConnection
 from datetime import date
 import pandas as pd
 import calendar
+import streamlit as st
 
+# --- CONTROL DE ACCESO SIMPLE ---
+def check_password():
+    """Devuelve True si el usuario ingresó la contraseña correcta."""
+    def password_entered():
+        if st.session_state["password"] == "comuna2026":  # <-- Cambia esta clave por la que prefieras
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        st.text_input("Contraseña de acceso:", type="password", on_change=password_entered, key="password")
+        return False
+    elif not st.session_state["password_correct"]:
+        st.text_input("Contraseña de acceso:", type="password", on_change=password_entered, key="password")
+        st.error("😕 Contraseña incorrecta")
+        return False
+    else:
+        return True
+
+if not check_password():
+    st.stop()  # Detiene la ejecución si no se autenticó
+# --------------------------------
 # Configuración de la página
 st.set_page_config(page_title="Gestión de Cheques", page_icon="💳", layout="wide")
 
