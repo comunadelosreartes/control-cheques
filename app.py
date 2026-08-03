@@ -441,255 +441,234 @@ elif opcion == "📊 Informes / Descargar Excel":
     except Exception as e:
         st.error(f"Error al generar el informe: {e}")
 # =============================================================================
-# OPCIÓN 5: ENSAYO Y CARGA MASIVA DE CHEQUES
+# OPCIÓN 5: ENSAYO Y CARGA MASIVA DE CHEQUES (INTELIGENTE)
 # =============================================================================
 elif opcion == "🧮 Ensayo y Carga Masiva":
-    st.title("🧮 Ensayo y Planificación de Carga de Cheques")
-    st.caption(
-        "Simule la distribución de un pago en varios cheques, verifique la carga diaria en el calendario y confirme la carga masiva a Google Sheets."
-    )
+    st.title("🧮 Ensayo y Planificación Inteligente de Cheques")
+    st.caption("Simule la distribución de pagos en días hábiles óptimos según la carga del calendario y exporte en lote a Google Sheets.")
 
     try:
         df_existente = conn.read(ttl=0)
     except Exception as e:
         df_existente = pd.DataFrame()
-        st.warning(
-            "No se pudieron cargar los cheques existentes para verificar carga diaria."
-        )
+        st.warning("No se pudieron cargar los cheques existentes para verificar carga diaria.")
+
+    # Preparar df existente para consulta de acumulado por día
+    if not df_existente.empty and "Fecha Acreditacion" in df_existente.columns:
+        df_existente["Fecha_DT"] = pd.to_datetime(df_existente["Fecha Acreditacion"], errors="coerce").dt.date
+        df_existente["Monto_Num"] = pd.to_numeric(df_existente["Monto"], errors="coerce").fillna(0)
+    else:
+        df_existente = pd.DataFrame(columns=["Fecha_DT", "Monto_Num"])
 
     # -------------------------------------------------------------------------
-    # PASO 1: PARÁMETROS DEL PAGO Y CÁLCULO DE MONTOS
+    # PASO 1: PARÁMETROS DEL PAGO Y RANGOS DE DÍAS
     # -------------------------------------------------------------------------
-    st.subheader("1️⃣ Parámetros del Pago")
+    st.subheader("1️⃣ Parámetros del Pago y Rangos de Fechas")
 
     col1, col2, col3 = st.columns([3, 2, 2])
     with col1:
         beneficiario_sim = st.text_input("Beneficiario / Proveedor:")
     with col2:
-        monto_total_sim = st.number_input(
-            "Monto Total a Pagar ($):", min_value=0.0, step=1000.0, format="%.2f"
-        )
+        monto_total_sim = st.number_input("Monto Total a Pagar ($):", min_value=0.0, step=1000.0, format="%.2f")
     with col3:
-        tipo_cheque_sim = st.selectbox(
-            "Tipo de Cheque:", ["Cheque físico", "echeq"]
-        )
+        tipo_cheque_sim = st.selectbox("Tipo de Cheque:", ["Cheque físico", "echeq"])
 
     col4, col5, col6, col7 = st.columns(4)
     with col4:
-        cant_cheques = st.number_input(
-            "Cantidad de Cheques:", min_value=1, max_value=20, value=3
-        )
+        cant_cheques = st.number_input("Cantidad de Cheques:", min_value=1, max_value=20, value=3)
     with col5:
-        nro_inicial_sim = st.number_input(
-            "N° Cheque Inicial:", min_value=1, value=5424
-        )
+        nro_inicial_sim = st.number_input("N° Cheque Inicial:", min_value=1, value=5424)
     with col6:
-        # Sugerencia de división exacta
-        monto_promedio = (
-            monto_total_sim / cant_cheques if cant_cheques > 0 else 0.0
-        )
-        # Redondeo sugerido a miles
-        monto_redondo_sugerido = round(monto_promedio, -3)
+        dias_min = st.number_input("Días Mínimo (ej: 1 o 30):", min_value=0, max_value=365, value=30)
+    with col7:
+        dias_max = st.number_input("Días Máximo (ej: 60):", min_value=1, max_value=365, value=60)
 
+    # Validación de rango de días
+    if dias_max < dias_min:
+        st.error("⚠️ El 'Días Máximo' debe ser mayor o igual al 'Días Mínimo'.")
+
+    col_prop, col_sald = st.columns(2)
+    with col_prop:
+        monto_promedio = monto_total_sim / cant_cheques if cant_cheques > 0 else 0.0
+        monto_redondo_sugerido = round(monto_promedio, -3)
         monto_propuesto = st.number_input(
             "Monto Redondo Propuesto ($):",
             min_value=0.0,
             value=float(monto_redondo_sugerido),
             step=1000.0,
             format="%.2f",
-            help="Monto de anotación sencilla para los primeros cheques.",
+            help="Monto de anotación sencilla para los primeros cheques."
         )
 
-    with col7:
-        # Cálculo del saldo restante para el último cheque
+    with col_sald:
         if cant_cheques > 1:
-            monto_saldo = monto_total_sim - (
-                monto_propuesto * (cant_cheques - 1)
-            )
+            monto_saldo = monto_total_sim - (monto_propuesto * (cant_cheques - 1))
         else:
             monto_saldo = monto_total_sim
 
         st.metric(
-            "Monto Último Cheque (Saldo)",
-            f"${monto_saldo:,.2f}",
-            delta=f"Promedio: ${monto_promedio:,.2f}",
-            delta_color="off",
+            label="Monto Último Cheque (Saldo Restante)",
+            value=f"${monto_saldo:,.2f}",
+            delta=f"Promedio por cheque: ${monto_promedio:,.2f}",
+            delta_color="off"
         )
 
     if monto_saldo < 0:
-        st.error(
-            "⚠️ El monto propuesto multiplicado por la cantidad de cheques supera el monto total a pagar. Por favor, reduzca el monto propuesto."
-        )
+        st.error("⚠️ El monto propuesto supera el total a pagar. Reduzca el monto propuesto.")
 
     st.divider()
 
     # -------------------------------------------------------------------------
-    # PASO 2: ASIGNACIÓN DE FECHAS Y CONSULTA DE CARGA DIARIA
+    # PASO 2: ASIGNACIÓN DE FECHAS HÁBILES Y DESPLEGABLE SEMANAL
     # -------------------------------------------------------------------------
-    st.subheader("2️⃣ Asignación de Fechas y Verificación de Carga Diaria")
-    st.caption(
-        "Ajuste las fechas estimadas para cada cheque y consulte la acumulación de compromisos para cada día."
-    )
+    st.subheader("2️⃣ Recomendación de Días Hábiles y Ajuste Semanal")
+    st.caption("La app busca automáticamente el día hábil con menor carga dentro del rango. Use el desplegable para cambiar el día de la semana.")
 
     cheques_generados = []
     hoy = date.today()
-
-    # Prefijo P solo para Cheque Físico
     prefijo = "P" if tipo_cheque_sim == "Cheque físico" else ""
 
-    # Preparar df existente para consulta de acumulado por día
-    if not df_existente.empty and "Fecha Acreditacion" in df_existente.columns:
-        df_existente["Fecha_DT"] = pd.to_datetime(
-            df_existente["Fecha Acreditacion"], errors="coerce"
-        ).dt.date
-        df_existente["Monto_Num"] = pd.to_numeric(
-            df_existente["Monto"], errors="coerce"
-        ).fillna(0)
-    else:
-        df_existente = pd.DataFrame(columns=["Fecha_DT", "Monto_Num"])
+    # Función auxiliar para obtener días hábiles (Lunes a Viernes)
+    def es_dia_habil(f):
+        return f.weekday() < 5
+
+    # Calcular la ventana de días para cada cheque
+    rango_total = max(1, dias_max - dias_min)
+    paso_dias = rango_total / cant_cheques if cant_cheques > 0 else 0
 
     for i in range(cant_cheques):
-        col_chq, col_fecha, col_monto, col_info = st.columns([1.5, 2, 2, 3.5])
+        # 1. Definir rango de búsqueda en días para este cheque específico
+        d_inicio = int(dias_min + (i * paso_dias))
+        d_fin = int(dias_min + ((i + 1) * paso_dias))
+        if d_fin <= d_inicio:
+            d_fin = d_inicio + 1
 
-        # Formatear el número de cheque
+        # 2. Buscar todas las fechas hábiles dentro del rango
+        fechas_habiles_rango = []
+        for d in range(d_inicio, d_fin + 1):
+            f_candidate = hoy + pd.Timedelta(days=d)
+            if es_dia_habil(f_candidate):
+                fechas_habiles_rango.append(f_candidate)
+
+        if not fechas_habiles_rango:
+            # Si el rango quedó muy estrecho y no agarró días hábiles, expandir búsqueda
+            f_candidate = hoy + pd.Timedelta(days=d_inicio)
+            while not es_dia_habil(f_candidate):
+                f_candidate += pd.Timedelta(days=1)
+            fechas_habiles_rango.append(f_candidate)
+
+        # 3. Determinar la fecha más "liviana" (con menor acumulado en el sistema)
+        mejor_fecha = fechas_habiles_rango[0]
+        menor_monto = float('inf')
+
+        for f in fechas_habiles_rango:
+            acumulado_f = df_existente[df_existente["Fecha_DT"] == f]["Monto_Num"].sum()
+            if acumulado_f < menor_monto:
+                menor_monto = acumulado_f
+                mejor_fecha = f
+
+        # 4. Construir las opciones del desplegable semanal (Lunes a Viernes de esa semana)
+        inicio_semana = mejor_fecha - pd.Timedelta(days=mejor_fecha.weekday()) # Lunes
+        dias_semana_nombres = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]
+        opciones_semana = []
+        idx_defecto = 0
+
+        for day_idx in range(5): # De Lunes (0) a Viernes (4)
+            f_semana = inicio_semana + pd.Timedelta(days=day_idx)
+            monto_f_semana = df_existente[df_existente["Fecha_DT"] == f_semana]["Monto_Num"].sum()
+            
+            # Etiqueta visual para el desplegable
+            tag_rec = " ⭐ [RECOMENDADO]" if f_semana == mejor_fecha else ""
+            label_opcion = f"{dias_semana_nombres[day_idx]} {f_semana.strftime('%d/%m/%Y')} — Cargado: ${monto_f_semana:,.2f}{tag_rec}"
+            
+            opciones_semana.append((label_opcion, f_semana, monto_f_semana))
+            
+            if f_semana == mejor_fecha:
+                idx_defecto = day_idx
+
+        # Renderizar la fila del cheque
+        col_chq, col_select, col_info = st.columns([1.5, 4.5, 2])
+
         nro_actual = f"{prefijo}{int(nro_inicial_sim) + i}"
-
-        # Asignar monto: los primeros llevan monto_propuesto, el último lleva el saldo
-        monto_chq = (
-            monto_propuesto if i < cant_cheques - 1 else max(0.0, monto_saldo)
-        )
-
-        # Fecha sugerida por defecto (ej: a 30, 45, 60 días...)
-        dias_defecto = 30 + (i * 15)
-        fecha_sugerida = hoy + timedelta(days=dias_defecto)
+        monto_chq = monto_propuesto if i < cant_cheques - 1 else max(0.0, monto_saldo)
 
         with col_chq:
-            st.text_input(
-                f"Cheque #{i+1}",
-                value=nro_actual,
-                disabled=True,
-                key=f"nro_{i}",
-            )
+            st.markdown(f"**Cheque #{i+1} ({nro_actual})**")
+            st.caption(f"Monto: **${monto_chq:,.2f}**")
 
-        with col_fecha:
-            fecha_elegi = st.date_input(
-                f"Fecha Acreditación #{i+1}:",
-                value=fecha_sugerida,
-                format="DD/MM/YYYY",
-                key=f"fecha_{i}",
+        with col_select:
+            opcion_elegida = st.selectbox(
+                f"Seleccione día para Cheque #{i+1}:",
+                options=[op[0] for op in opciones_semana],
+                index=idx_defecto,
+                key=f"select_dia_{i}"
             )
-
-        with col_monto:
-            st.text_input(
-                f"Monto #{i+1}:",
-                value=f"${monto_chq:,.2f}",
-                disabled=True,
-                key=f"monto_{i}",
-            )
-
-        # Consultar carga actual en el sistema para la fecha elegida
-        monto_cargado_dia = df_existente[
-            df_existente["Fecha_DT"] == fecha_elegi
-        ]["Monto_Num"].sum()
+            # Recuperar la fecha exacta según la opción elegida
+            fecha_elegi = opciones_semana[[op[0] for op in opciones_semana].index(opcion_elegida)][1]
+            monto_dia_elegido = opciones_semana[[op[0] for op in opciones_semana].index(opcion_elegida)][2]
 
         with col_info:
-            if monto_cargado_dia == 0:
-                st.success(f"🟢 **{fecha_elegi.strftime('%d/%m/%Y')}**: Día libre ($0.00 cargados)")
-            elif monto_cargado_dia < 2000000:
-                st.info(
-                    f"🟡 **{fecha_elegi.strftime('%d/%m/%Y')}**: Carga moderada (${monto_cargado_dia:,.2f})"
-                )
+            if monto_dia_elegido == 0:
+                st.success(f"🟢 **Día despejado**\n\nTotal: $0.00")
+            elif monto_dia_elegido < 2000000:
+                st.info(f"🟡 **Carga moderada**\n\nTotal: ${monto_dia_elegido:,.2f}")
             else:
-                st.warning(
-                    f"🔴 **{fecha_elegi.strftime('%d/%m/%Y')}**: Carga alta (${monto_cargado_dia:,.2f})"
-                )
+                st.warning(f"🔴 **Carga alta**\n\nTotal: ${monto_dia_elegido:,.2f}")
 
-        cheques_generados.append(
-            {
-                "Fecha Emision": hoy.strftime("%Y-%m-%d"),
-                "Fecha Acreditacion": fecha_elegi.strftime("%Y-%m-%d"),
-                "Nro Cheque": nro_actual,
-                "Beneficiario": beneficiario_sim.strip(),
-                "Tipo": tipo_cheque_sim,
-                "Monto": monto_chq,
-                "Cobrado": "NO",
-            }
-        )
+        cheques_generados.append({
+            "Fecha Emision": hoy.strftime("%Y-%m-%d"),
+            "Fecha Acreditacion": fecha_elegi.strftime("%Y-%m-%d"),
+            "Nro Cheque": nro_actual,
+            "Beneficiario": beneficiario_sim.strip(),
+            "Tipo": tipo_cheque_sim,
+            "Monto": monto_chq,
+            "Cobrado": "NO"
+        })
 
     st.divider()
 
     # -------------------------------------------------------------------------
-    # PASO 3: VISTA PREVIA Y CONFIRMACIÓN DE CARGA MASIVA
+    # PASO 3: VISTA PREVIA Y CONFIRMACIÓN
     # -------------------------------------------------------------------------
-    st.subheader("3️⃣ Vista Previa y Carga Masiva")
+    st.subheader("3️⃣ Vista Previa del Lote y Carga a Google Sheets")
 
     df_simulacion = pd.DataFrame(cheques_generados)
 
-    # Formatear la vista previa para mejor lectura
     df_simulacion_vista = df_simulacion.copy()
-    df_simulacion_vista["Monto"] = df_simulacion_vista["Monto"].apply(
-        lambda x: f"${x:,.2f}"
-    )
+    df_simulacion_vista["Monto"] = df_simulacion_vista["Monto"].apply(lambda x: f"${x:,.2f}")
 
     st.dataframe(df_simulacion_vista, use_container_width=True, hide_index=True)
 
     col_btn, _ = st.columns([2, 2])
     with col_btn:
-        btn_confirmar = st.button(
-            "🚀 Confirmar y Cargar Lote a Google Sheets",
-            type="primary",
-            use_container_width=True,
-        )
+        btn_confirmar = st.button("🚀 Confirmar y Cargar Lote a Google Sheets", type="primary", use_container_width=True)
 
     if btn_confirmar:
         if not beneficiario_sim.strip():
-            st.error(
-                "Por favor, ingrese el nombre del Beneficiario antes de confirmar."
-            )
+            st.error("Por favor, ingrese el nombre del Beneficiario antes de confirmar.")
         elif monto_total_sim <= 0:
-            st.error(
-                "El monto total del pago debe ser mayor a cero para realizar la carga."
-            )
+            st.error("El monto total del pago debe ser mayor a cero.")
         elif monto_saldo < 0:
             st.error("Corrija el monto propuesto antes de confirmar.")
         else:
             try:
-                # 1. Leer planilla actual
                 data_existente = conn.read(ttl=0)
 
-                # 2. Validar que ninguno de los nuevos cheques exista previamente
-                if (
-                    not data_existente.empty
-                    and "Nro Cheque" in data_existente.columns
-                ):
-                    cheques_existentes = (
-                        data_existente["Nro Cheque"]
-                        .astype(str)
-                        .str.strip()
-                        .tolist()
-                    )
-                    duplicados = [
-                        c["Nro Cheque"]
-                        for c in cheques_generados
-                        if c["Nro Cheque"] in cheques_existentes
-                    ]
+                # Validar duplicados
+                if not data_existente.empty and "Nro Cheque" in data_existente.columns:
+                    cheques_existentes = data_existente["Nro Cheque"].astype(str).str.strip().tolist()
+                    duplicados = [c["Nro Cheque"] for c in cheques_generados if c["Nro Cheque"] in cheques_existentes]
 
                     if duplicados:
-                        st.warning(
-                            f"⚠️ No se pudo realizar la carga. Los siguientes números de cheque ya existen en el sistema: **{', '.join(duplicados)}**"
-                        )
+                        st.warning(f"⚠️ No se pudo realizar la carga. Los siguientes números de cheque ya existen en el sistema: **{', '.join(duplicados)}**")
                         st.stop()
 
-                # 3. Concatenar y actualizar Google Sheets
-                df_actualizado = pd.concat(
-                    [data_existente, df_simulacion], ignore_index=True
-                )
+                # Carga masiva
+                df_actualizado = pd.concat([data_existente, df_simulacion], ignore_index=True)
                 conn.update(data=df_actualizado)
 
                 st.balloons()
-                st.success(
-                    f"🎉 ¡Lote de **{cant_cheques} cheques** cargado con éxito para **{beneficiario_sim}**!"
-                )
+                st.success(f"🎉 ¡Lote de **{cant_cheques} cheques** cargado con éxito para **{beneficiario_sim}**!")
 
             except Exception as e:
                 st.error(f"Error al guardar el lote en Google Sheets: {e}")
