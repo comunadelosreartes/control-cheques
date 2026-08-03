@@ -316,8 +316,10 @@ elif opcion == "📅 Calendario / Flujo de Pagos":
                         use_container_width=True,
                         hide_index=True
                     )
+
     except Exception as e:
         st.error(f"Error al generar la sección de calendario: {e}")
+
 # =============================================================================
 # OPCIÓN 4: INFORMES Y DESCARGA EN EXCEL
 # =============================================================================
@@ -389,5 +391,5 @@ elif opcion == "📊 Informes / Descargar Excel":
         else:
             st.info("Aún no hay cheques registrados en la planilla.")
 
-except Exception as e:
+    except Exception as e:
         st.error(f"Error al generar el informe: {e}")
