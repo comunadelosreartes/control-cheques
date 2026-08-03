@@ -1,7 +1,7 @@
 import streamlit as st
 import io
 from streamlit_gsheets import GSheetsConnection
-from datetime import date
+from datetime import date, timedelta
 import pandas as pd
 import calendar
 import streamlit as st
