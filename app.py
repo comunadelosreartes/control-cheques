@@ -71,7 +71,7 @@ if opcion == "✍️ Ingresar Cheque":
         beneficiario = st.text_input("Beneficiario")
         submit = st.form_submit_button("Guardar Cheque")
 
-    # Procesar el envío del formulario
+# Procesar el envío del formulario
     if submit:
         if not nro_cheque.strip():
             st.error("Por favor, ingrese el número de cheque.")
@@ -83,25 +83,48 @@ if opcion == "✍️ Ingresar Cheque":
             try:
                 # 1. Leer los datos existentes de la planilla
                 data_existente = conn.read(ttl=0)
-                
+
+                # ⚠️ VALIDACIÓN DE DUPLICADOS ⚠️
+                if not data_existente.empty and "Nro Cheque" in data_existente.columns:
+                    # Convertimos a texto para comparar exactamente igual
+                    cheques_existentes = (
+                        data_existente["Nro Cheque"].astype(str).str.strip().tolist()
+                    )
+
+                    if nro_cheque.strip() in cheques_existentes:
+                        st.warning(
+                            f"⚠️ **¡Alerta!** El cheque N° **{nro_cheque.strip()}** ya existe en el sistema. Por favor, verifique el número."
+                        )
+                        st.stop()  # Detiene el guardado para evitar duplicar datos
+
                 # 2. Crear el nuevo registro
-                nuevo_cheque = pd.DataFrame([{
-                    "Fecha Emision": fecha_emision.strftime("%Y-%m-%d"),
-                    "Fecha Acreditacion": fecha_acreditacion.strftime("%Y-%m-%d"),
-                    "Nro Cheque": nro_cheque.strip(),
-                    "Beneficiario": beneficiario.strip(),
-                    "Tipo": tipo_cheque,
-                    "Monto": monto,
-                    "Cobrado": cobrado
-                }])
-                
+                nuevo_cheque = pd.DataFrame(
+                    [
+                        {
+                            "Fecha Emision": fecha_emision.strftime("%Y-%m-%d"),
+                            "Fecha Acreditacion": fecha_acreditacion.strftime(
+                                "%Y-%m-%d"
+                            ),
+                            "Nro Cheque": nro_cheque.strip(),
+                            "Beneficiario": beneficiario.strip(),
+                            "Tipo": tipo_cheque,
+                            "Monto": monto,
+                            "Cobrado": cobrado,
+                        }
+                    ]
+                )
+
                 # 3. Concatenar el nuevo registro
-                df_actualizado = pd.concat([data_existente, nuevo_cheque], ignore_index=True)
-                
+                df_actualizado = pd.concat(
+                    [data_existente, nuevo_cheque], ignore_index=True
+                )
+
                 # 4. Enviar a Google Sheets
                 conn.update(data=df_actualizado)
-                
-                st.success(f"¡Cheque N° **{nro_cheque}** guardado con éxito para **{beneficiario}**!")
+
+                st.success(
+                    f"¡Cheque N° **{nro_cheque}** guardado con éxito para **{beneficiario}**!"
+                )
             except Exception as e:
                 st.error(f"Error al guardar en Google Sheets: {e}")
 
