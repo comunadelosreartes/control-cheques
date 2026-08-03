@@ -324,8 +324,8 @@ elif opcion == "📅 Calendario / Flujo de Pagos":
 # OPCIÓN 4: INFORMES Y DESCARGA EN EXCEL
 # =============================================================================
 elif opcion == "📊 Informes / Descargar Excel":
-    st.title("📊 Generador de Informes de Cheques")
-    st.caption("Seleccione un rango de fechas para previsualizar y exportar a Excel.")
+    st.title("📊 Generador de Informes y Control de Deuda")
+    st.caption("Filtre por rango de fechas y estado de cobro para consultar la deuda pendiente y exportar a Excel.")
 
     try:
         df = conn.read(ttl=0)
@@ -344,47 +344,70 @@ elif opcion == "📊 Informes / Descargar Excel":
 
             fecha_hasta_defecto = date.today()
 
-            # 3. Filtros de Fecha en pantalla
-            col1, col2 = st.columns(2)
+            # 3. Filtros en Pantalla (Fechas y Estado)
+            col1, col2, col3 = st.columns([2, 2, 3])
             with col1:
                 fecha_desde = st.date_input("Fecha Desde:", value=fecha_desde_defecto, format="DD/MM/YYYY")
             with col2:
                 fecha_hasta = st.date_input("Fecha Hasta:", value=fecha_hasta_defecto, format="DD/MM/YYYY")
+            with col3:
+                filtro_estado = st.selectbox(
+                    "Estado a Consultar:",
+                    ["🔴 Pendientes / Deuda (NO)", "📋 Todos los Cheques", "🟢 Cobrados (SI)"],
+                    index=0  # Por defecto selecciona Pendientes
+                )
 
-            # 4. Filtrar el DataFrame según el rango
-            mask = (df["Fecha_DT"].dt.date >= fecha_desde) & (df["Fecha_DT"].dt.date <= fecha_hasta)
-            df_informe = df[mask].copy()
+            # 4. Aplicar Filtro de Fechas
+            mask_fechas = (df["Fecha_DT"].dt.date >= fecha_desde) & (df["Fecha_DT"].dt.date <= fecha_hasta)
+            df_informe = df[mask_fechas].copy()
 
-            # Quitar la columna auxiliar
+            # 5. Aplicar Filtro de Estado
+            if filtro_estado == "🔴 Pendientes / Deuda (NO)":
+                df_informe = df_informe[~df_informe["Cobrado"].astype(str).str.upper().isin(["SI"])]
+            elif filtro_estado == "🟢 Cobrados (SI)":
+                df_informe = df_informe[df_informe["Cobrado"].astype(str).str.upper().isin(["SI"])]
+
+            # Quitar la columna auxiliar de fecha
             df_informe = df_informe.drop(columns=["Fecha_DT"])
 
-            # 5. Resumen visual y tabla
+            # 6. Cálculo de Totales y Métricas Visuales
             st.divider()
-            m1, m2 = st.columns(2)
             
             # Asegurar que Monto sea numérico para sumar
             df_informe["Monto_Num"] = pd.to_numeric(df_informe["Monto"], errors="coerce").fillna(0)
             monto_total_informe = df_informe["Monto_Num"].sum()
 
+            m1, m2 = st.columns(2)
             m1.metric("Cantidad de Cheques", f"{len(df_informe)} registros")
-            m2.metric("Monto Total en Rango", f"${monto_total_informe:,.2f}")
+            
+            # Mostrar etiqueta personalizada según el filtro elegido
+            if filtro_estado == "🔴 Pendientes / Deuda (NO)":
+                m2.metric("💸 Total Deuda Pendiente", f"${monto_total_informe:,.2f}")
+            elif filtro_estado == "🟢 Cobrados (SI)":
+                m2.metric("✅ Total Cobrado", f"${monto_total_informe:,.2f}")
+            else:
+                m2.metric("Monto Total en Rango", f"${monto_total_informe:,.2f}")
 
-            # Eliminar la columna temporal de monto numérico para la visualización
+            # Eliminar la columna temporal de monto numérico para la tabla
             df_informe_vista = df_informe.drop(columns=["Monto_Num"])
 
+            # 7. Vista previa en pantalla
             st.subheader(f"📋 Vista Previa ({len(df_informe)} cheques)")
             st.dataframe(df_informe_vista, use_container_width=True, hide_index=True)
 
-            # 6. Preparación y Botón de Descargar Excel
+            # 8. Preparación y Botón de Descargar Excel
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
                 df_informe_vista.to_excel(writer, index=False, sheet_name="Informe_Cheques")
             data_excel = output.getvalue()
 
+            # Nombre de archivo dinámico según filtro
+            tag_estado = "deuda_pendiente" if "Pendientes" in filtro_estado else ("cobrados" if "Cobrados" in filtro_estado else "todos")
+            
             st.download_button(
                 label="📥 Descargar Informe en Excel (.xlsx)",
                 data=data_excel,
-                file_name=f"informe_cheques_{fecha_desde}_al_{fecha_hasta}.xlsx",
+                file_name=f"informe_{tag_estado}_{fecha_desde}_al_{fecha_hasta}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 type="primary"
             )
