@@ -1,4 +1,5 @@
 import streamlit as st
+import io
 from streamlit_gsheets import GSheetsConnection
 from datetime import date
 import pandas as pd
@@ -42,6 +43,7 @@ opcion = st.sidebar.radio(
         "✍️ Ingresar Cheque", 
         "🔍 Gestionar / Marcar Cobrados", 
         "📅 Calendario / Flujo de Pagos"
+        "📊 Informes / Descargar Excel"
     ]
 )
 
@@ -314,6 +316,76 @@ elif opcion == "📅 Calendario / Flujo de Pagos":
                         use_container_width=True,
                         hide_index=True
                     )
+# =============================================================================
+# OPCIÓN 4: INFORMES Y DESCARGA EN EXCEL
+# =============================================================================
+elif opcion == "📊 Informes / Descargar Excel":
+    st.title("📊 Generador de Informes de Cheques")
+    st.caption("Seleccione un rango de fechas para previsualizar y exportar a Excel.")
+
+    try:
+        df = conn.read(ttl=0)
+
+        if not df.empty:
+            # 1. Convertir la fecha de acreditación a formato Datetime para operar
+            df["Fecha_DT"] = pd.to_datetime(df["Fecha Acreditacion"], errors="coerce")
+
+            # 2. Calcular fecha "Desde" por defecto: primer cheque pendiente (Cobrado != SI)
+            df_pendientes = df[~df["Cobrado"].astype(str).str.upper().isin(["SI"])]
+
+            if not df_pendientes.empty and df_pendientes["Fecha_DT"].notna().any():
+                fecha_desde_defecto = df_pendientes["Fecha_DT"].min().date()
+            else:
+                fecha_desde_defecto = date.today()
+
+            fecha_hasta_defecto = date.today()
+
+            # 3. Filtros de Fecha en pantalla
+            col1, col2 = st.columns(2)
+            with col1:
+                fecha_desde = st.date_input("Fecha Desde:", value=fecha_desde_defecto, format="DD/MM/YYYY")
+            with col2:
+                fecha_hasta = st.date_input("Fecha Hasta:", value=fecha_hasta_defecto, format="DD/MM/YYYY")
+
+            # 4. Filtrar el DataFrame según el rango
+            mask = (df["Fecha_DT"].dt.date >= fecha_desde) & (df["Fecha_DT"].dt.date <= fecha_hasta)
+            df_informe = df[mask].copy()
+
+            # Quitar la columna auxiliar
+            df_informe = df_informe.drop(columns=["Fecha_DT"])
+
+            # 5. Resumen visual y tabla
+            st.divider()
+            m1, m2 = st.columns(2)
+            
+            # Asegurar que Monto sea numérico para sumar
+            df_informe["Monto_Num"] = pd.to_numeric(df_informe["Monto"], errors="coerce").fillna(0)
+            monto_total_informe = df_informe["Monto_Num"].sum()
+
+            m1.metric("Cantidad de Cheques", f"{len(df_informe)} registros")
+            m2.metric("Monto Total en Rango", f"${monto_total_informe:,.2f}")
+
+            # Eliminar la columna temporal de monto numérico para la visualización
+            df_informe_vista = df_informe.drop(columns=["Monto_Num"])
+
+            st.subheader(f"📋 Vista Previa ({len(df_informe)} cheques)")
+            st.dataframe(df_informe_vista, use_container_width=True, hide_index=True)
+
+            # 6. Preparación y Botón de Descargar Excel
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+                df_informe_vista.to_excel(writer, index=False, sheet_name="Informe_Cheques")
+            data_excel = output.getvalue()
+
+            st.download_button(
+                label="📥 Descargar Informe en Excel (.xlsx)",
+                data=data_excel,
+                file_name=f"informe_cheques_{fecha_desde}_al_{fecha_hasta}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary"
+            )
+        else:
+            st.info("Aún no hay cheques registrados en la planilla.")
 
     except Exception as e:
         st.error(f"Error al generar la sección de calendario: {e}")
