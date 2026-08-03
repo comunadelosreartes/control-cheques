@@ -60,7 +60,7 @@ if opcion == "✍️ Ingresar Cheque":
         
         with col1:
             fecha_emision = st.date_input("Fecha de Emisión", value=date.today())
-            tipo_cheque = st.selectbox("Tipo de Cheque", ["echeq", "Cheque físico"])
+            tipo_cheque = st.selectbox("Tipo de Cheque", ["Cheque físico", "echeq"])
             cobrado = st.selectbox("¿Cobrado?", ["NO", "SI"])
             
         with col2:
