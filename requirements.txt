@@ -1,8 +1,6 @@
-streamlit
-st-gsheets-connection
-pandas
-gspread
-google-auth
+streamlit>=1.35.0
+st-gsheets-connection>=0.1.0
+pandas>=2.2.0
+gspread>=6.0.0
+google-auth>=2.0.0
 xlsxwriter
-streamlit==1.31.0
-starlette>=0.27.0,<0.28.0
