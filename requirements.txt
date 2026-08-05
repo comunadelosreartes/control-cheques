@@ -1,5 +1,5 @@
-streamlit
-st-gsheets-connection
-pandas
-xlsxwriter
+streamlit==1.61.0
 starlette==0.38.6
+st-gsheets-connection==0.1.0
+pandas==3.0.5
+xlsxwriter==3.2.9
