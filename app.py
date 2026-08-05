@@ -473,15 +473,43 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
     with col3:
         tipo_cheque_sim = st.selectbox("Tipo de Cheque:", ["Cheque físico", "echeq"])
 
-    col4, col5, col6, col7 = st.columns(4)
+    col4, col5, col6 = st.columns([2, 2, 3])
     with col4:
         cant_cheques = st.number_input("Cantidad de Cheques:", min_value=1, max_value=20, value=3)
     with col5:
-        nro_inicial_sim = st.number_input("N° Cheque Inicial:", min_value=1, value=5424)
+        dias_min = st.number_input("Días Mínimo (ej: 30):", min_value=0, max_value=365, value=30)
     with col6:
-        dias_min = st.number_input("Días Mínimo (ej: 1 o 30):", min_value=0, max_value=365, value=30)
-    with col7:
         dias_max = st.number_input("Días Máximo (ej: 60):", min_value=1, max_value=365, value=60)
+
+    # --- NUEVA SECCIÓN DE CONFIGURACIÓN DE NÚMEROS ---
+    usar_numeros_manuales = st.checkbox("⚠️ ¿Usar números de cheque discontinuos / no consecutivos (ej: saltar anulados)?")
+
+    prefijo = "P" if tipo_cheque_sim == "Cheque físico" else ""
+
+    if not usar_numeros_manuales:
+        nro_inicial_sim = st.number_input("N° Cheque Inicial (Consecutivos):", min_value=1, value=5424)
+        # Generar lista correlativa
+        lista_numeros_cheques = [f"{prefijo}{int(nro_inicial_sim) + i}" for i in range(cant_cheques)]
+    else:
+        st.info("💡 Ingrese los números de cheque separados por coma. Ejemplo: `5424, 5425, 5428`")
+        lista_ingresada = st.text_input(
+            "Números de cheque específicos:", 
+            placeholder="Ej: 0005424, 0005425, 0005428",
+            help="Escriba exactamente los números de los cheques que va a utilizar."
+        )
+        
+        # Procesar lista ingresada o poner valores por defecto si está vacía
+        if lista_ingresada.strip():
+            partes = [p.strip() for p in lista_ingresada.split(",") if p.strip()]
+            # Completar o recortar según la cantidad de cheques especificada
+            lista_numeros_cheques = []
+            for i in range(cant_cheques):
+                if i < len(partes):
+                    lista_numeros_cheques.append(f"{prefijo}{partes[i]}")
+                else:
+                    lista_numeros_cheques.append(f"{prefijo}FALTA_{i+1}")
+        else:
+            lista_numeros_cheques = [f"{prefijo}{5424 + i}" for i in range(cant_cheques)]
 
     # Validación de rango de días
     if dias_max < dias_min:
@@ -522,11 +550,10 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
     # PASO 2: ASIGNACIÓN DE FECHAS HÁBILES Y DESPLEGABLE SEMANAL
     # -------------------------------------------------------------------------
     st.subheader("2️⃣ Recomendación de Días Hábiles y Ajuste Semanal")
-    st.caption("La app busca automáticamente el día hábil con menor carga dentro del rango. Use el desplegable para cambiar el día de la semana.")
+    st.caption("La app busca automáticamente el día hábil con menor carga dentro del rango. Puede modificar el número de cheque o el día de la semana si lo requiere.")
 
     cheques_generados = []
     hoy = date.today()
-    prefijo = "P" if tipo_cheque_sim == "Cheque físico" else ""
 
     # Función auxiliar para obtener días hábiles (Lunes a Viernes)
     def es_dia_habil(f):
@@ -551,13 +578,12 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
                 fechas_habiles_rango.append(f_candidate)
 
         if not fechas_habiles_rango:
-            # Si el rango quedó muy estrecho y no agarró días hábiles, expandir búsqueda
             f_candidate = hoy + pd.Timedelta(days=d_inicio)
             while not es_dia_habil(f_candidate):
                 f_candidate += pd.Timedelta(days=1)
             fechas_habiles_rango.append(f_candidate)
 
-        # 3. Determinar la fecha más "liviana" (con menor acumulado en el sistema)
+        # 3. Determinar la fecha más "liviana"
         mejor_fecha = fechas_habiles_rango[0]
         menor_monto = float('inf')
 
@@ -567,17 +593,16 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
                 menor_monto = acumulado_f
                 mejor_fecha = f
 
-        # 4. Construir las opciones del desplegable semanal (Lunes a Viernes de esa semana)
+        # 4. Construir las opciones del desplegable semanal
         inicio_semana = mejor_fecha - pd.Timedelta(days=mejor_fecha.weekday()) # Lunes
         dias_semana_nombres = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]
         opciones_semana = []
         idx_defecto = 0
 
-        for day_idx in range(5): # De Lunes (0) a Viernes (4)
+        for day_idx in range(5):
             f_semana = inicio_semana + pd.Timedelta(days=day_idx)
             monto_f_semana = df_existente[df_existente["Fecha_DT"] == f_semana]["Monto_Num"].sum()
             
-            # Etiqueta visual para el desplegable
             tag_rec = " ⭐ [RECOMENDADO]" if f_semana == mejor_fecha else ""
             label_opcion = f"{dias_semana_nombres[day_idx]} {f_semana.strftime('%d/%m/%Y')} — Cargado: ${monto_f_semana:,.2f}{tag_rec}"
             
@@ -587,14 +612,22 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
                 idx_defecto = day_idx
 
         # Renderizar la fila del cheque
-        col_chq, col_select, col_info = st.columns([1.5, 4.5, 2])
+        col_num, col_chq_info, col_select, col_info = st.columns([2, 1.5, 3.5, 2])
 
-        nro_actual = f"{prefijo}{int(nro_inicial_sim) + i}"
         monto_chq = monto_propuesto if i < cant_cheques - 1 else max(0.0, monto_saldo)
+        nro_sugerido = lista_numeros_cheques[i] if i < len(lista_numeros_cheques) else f"{prefijo}{5424 + i}"
 
-        with col_chq:
-            st.markdown(f"**Cheque #{i+1} ({nro_actual})**")
-            st.caption(f"Monto: **${monto_chq:,.2f}**")
+        with col_num:
+            # Permitir edición individual directa del número de cheque por si se necesita ajustar al instante
+            nro_final_cheque = st.text_input(
+                f"N° Cheque #{i+1}:", 
+                value=nro_sugerido, 
+                key=f"input_nro_chk_{i}"
+            )
+
+        with col_chq_info:
+            st.markdown(f"**Monto:**")
+            st.markdown(f"**${monto_chq:,.2f}**")
 
         with col_select:
             opcion_elegida = st.selectbox(
@@ -603,7 +636,6 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
                 index=idx_defecto,
                 key=f"select_dia_{i}"
             )
-            # Recuperar la fecha exacta según la opción elegida
             fecha_elegi = opciones_semana[[op[0] for op in opciones_semana].index(opcion_elegida)][1]
             monto_dia_elegido = opciones_semana[[op[0] for op in opciones_semana].index(opcion_elegida)][2]
 
@@ -618,7 +650,7 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
         cheques_generados.append({
             "Fecha Emision": hoy.strftime("%Y-%m-%d"),
             "Fecha Acreditacion": fecha_elegi.strftime("%Y-%m-%d"),
-            "Nro Cheque": nro_actual,
+            "Nro Cheque": nro_final_cheque.strip(),
             "Beneficiario": beneficiario_sim.strip(),
             "Tipo": tipo_cheque_sim,
             "Monto": monto_chq,
@@ -626,7 +658,6 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
         })
 
     st.divider()
-
     # -------------------------------------------------------------------------
     # PASO 3: VISTA PREVIA Y CONFIRMACIÓN
     # -------------------------------------------------------------------------
