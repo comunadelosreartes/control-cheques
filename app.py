@@ -143,35 +143,75 @@ if opcion == "✍️ Ingresar Cheque":
 # =============================================================================
 elif opcion == "🔍 Gestionar / Marcar Cobrados":
     st.title("🔍 Buscador y Gestión de Cobros")
-    st.caption("Filtre cheques por número o beneficiario y actualice su estado a 'SI' o 'NO'.")
+    st.caption("Filtre cheques por número, beneficiario, estado o rango de monto y actualice su estado a 'SI' o 'NO'.")
     
     try:
         df = conn.read(ttl=0)
         
+        # --- FILTROS SUPERIORES ---
         col_busqueda, col_filtro = st.columns([3, 1])
         with col_busqueda:
             busqueda = st.text_input("🔎 Buscar por N° de Cheque o Beneficiario:", placeholder="Escriba el número o nombre...")
         with col_filtro:
             estado_filtro = st.selectbox("Filtrar Estado:", ["Pendientes (NO)", "Todos", "Cobrados (SI)"])
 
+        # --- FILTRO POR RANGO DE MONTO ---
+        with st.expander("💵 Filtrar por Rango de Monto ($)", expanded=False):
+            # Obtener valores para el slider/entradas
+            monto_temp = pd.to_numeric(df["Monto"], errors="coerce").fillna(0.0) if not df.empty else pd.Series([0.0])
+            val_min = float(monto_temp.min())
+            val_max = float(monto_temp.max()) if monto_temp.max() > 0 else 1000000.0
+
+            col_m_desde, col_m_hasta = st.columns(2)
+            with col_m_desde:
+                monto_desde = st.number_input(
+                    "Monto Desde ($):", 
+                    min_value=0.0, 
+                    value=0.0, 
+                    step=10000.0, 
+                    format="%.2f"
+                )
+            with col_m_hasta:
+                monto_hasta = st.number_input(
+                    "Monto Hasta ($):", 
+                    min_value=0.0, 
+                    value=val_max, 
+                    step=10000.0, 
+                    format="%.2f"
+                )
+
         df_filtrado = df.copy()
         
-        # Filtro de estado
+        # 1. Filtro por Estado
         if estado_filtro == "Pendientes (NO)":
             df_filtrado = df_filtrado[df_filtrado["Cobrado"].astype(str).str.upper().isin(["NO", "NAN", "NONE", ""])]
         elif estado_filtro == "Cobrados (SI)":
             df_filtrado = df_filtrado[df_filtrado["Cobrado"].astype(str).str.upper() == "SI"]
 
-        # Filtro por texto
+        # 2. Filtro por Texto (N° de Cheque o Beneficiario)
         if busqueda.strip():
             mask_num = df_filtrado["Nro Cheque"].astype(str).str.contains(busqueda, case=False, na=False)
             mask_ben = df_filtrado["Beneficiario"].astype(str).str.contains(busqueda, case=False, na=False)
             df_filtrado = df_filtrado[mask_num | mask_ben]
 
+        # 3. Filtro por Rango de Monto
+        df_filtrado["_Monto_Num"] = pd.to_numeric(df_filtrado["Monto"], errors="coerce").fillna(0.0)
+        
+        if monto_hasta > 0:
+            df_filtrado = df_filtrado[
+                (df_filtrado["_Monto_Num"] >= monto_desde) & 
+                (df_filtrado["_Monto_Num"] <= monto_hasta)
+            ]
+        else:
+            df_filtrado = df_filtrado[df_filtrado["_Monto_Num"] >= monto_desde]
+
+        # Eliminar columna auxiliar
+        df_filtrado = df_filtrado.drop(columns=["_Monto_Num"])
+
         st.subheader(f"Resultados ({len(df_filtrado)} cheques encontrados)")
 
         if df_filtrado.empty:
-            st.info("No se encontraron cheques con el criterio de búsqueda ingresado.")
+            st.info("No se encontraron cheques con los criterios de búsqueda ingresados.")
         else:
             # Editor interactivo de datos
             df_editable = st.data_editor(
