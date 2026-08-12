@@ -6,29 +6,39 @@ import pandas as pd
 import calendar
 import streamlit as st
 
-# --- CONTROL DE ACCESO SIMPLE ---
+# --- CONTROL DE ACCESO SIMPLE (DEFINITIVO) ---
 def check_password():
     """Devuelve True si el usuario ingresó la contraseña correcta."""
+    
+    # 1. Si ya está autenticado, no vuelve a validar
+    if st.session_state.get("password_correct", False):
+        return True
+
+    # 2. Callback para validar el texto ingresado
     def password_entered():
-        if st.session_state["password"] == "comuna2026":  # <-- Cambia esta clave por la que prefieras
+        if st.session_state.get("password_input") == "comuna2026":
             st.session_state["password_correct"] = True
-            del st.session_state["password"]
+            st.session_state["password_input"] = ""  # Limpiamos el texto ingresado
         else:
             st.session_state["password_correct"] = False
 
-    if "password_correct" not in st.session_state:
-        st.text_input("Contraseña de acceso:", type="password", on_change=password_entered, key="password")
-        return False
-    elif not st.session_state["password_correct"]:
-        st.text_input("Contraseña de acceso:", type="password", on_change=password_entered, key="password")
+    # 3. Formulario de ingreso
+    st.title("🔒 Acceso Restringido")
+    st.text_input(
+        "Ingrese la contraseña para continuar:", 
+        type="password", 
+        on_change=password_entered, 
+        key="password_input"
+    )
+
+    if "password_correct" in st.session_state and not st.session_state["password_correct"]:
         st.error("😕 Contraseña incorrecta")
-        return False
-    else:
-        return True
+
+    return False
 
 if not check_password():
-    st.stop()  # Detiene la ejecución si no se autenticó
-# --------------------------------
+    st.stop()  # Detiene el resto de la app si no se autenticó
+# -------------------------------------------------------------
 # Configuración de la página
 st.set_page_config(page_title="Gestión de Cheques", page_icon="💳", layout="wide")
 
