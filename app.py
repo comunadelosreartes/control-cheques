@@ -4,7 +4,6 @@ from streamlit_gsheets import GSheetsConnection
 from datetime import date, timedelta
 import pandas as pd
 import calendar
-import streamlit as st
 
 # --- CONTROL DE ACCESO SIMPLE (DEFINITIVO) ---
 def check_password():
@@ -82,7 +81,7 @@ if opcion == "✍️ Ingresar Cheque":
         beneficiario = st.text_input("Beneficiario")
         submit = st.form_submit_button("Guardar Cheque")
 
-# Procesar el envío del formulario
+    # Procesar el envío del formulario
     if submit:
         if not nro_cheque.strip():
             st.error("Por favor, ingrese el número de cheque.")
@@ -167,7 +166,6 @@ elif opcion == "🔍 Gestionar / Marcar Cobrados":
 
         # --- FILTRO POR RANGO DE MONTO ---
         with st.expander("💵 Filtrar por Rango de Monto ($)", expanded=False):
-            # Obtener valores para el slider/entradas
             monto_temp = pd.to_numeric(df["Monto"], errors="coerce").fillna(0.0) if not df.empty else pd.Series([0.0])
             val_min = float(monto_temp.min())
             val_max = float(monto_temp.max()) if monto_temp.max() > 0 else 1000000.0
@@ -223,7 +221,6 @@ elif opcion == "🔍 Gestionar / Marcar Cobrados":
         if df_filtrado.empty:
             st.info("No se encontraron cheques con los criterios de búsqueda ingresados.")
         else:
-            # Editor interactivo de datos
             df_editable = st.data_editor(
                 df_filtrado,
                 column_config={
@@ -238,7 +235,6 @@ elif opcion == "🔍 Gestionar / Marcar Cobrados":
                 use_container_width=True
             )
 
-            # Botón para persistir los cambios en Google Sheets
             if st.button("💾 Guardar Cambios en Google Sheets", type="primary"):
                 df.update(df_editable)
                 conn.update(data=df)
@@ -258,7 +254,6 @@ elif opcion == "📅 Calendario / Flujo de Pagos":
     try:
         df = conn.read(ttl=0)
         
-        # Filtrar cheques no cobrados / pendientes
         df_pendientes = df[df["Cobrado"].astype(str).str.upper().isin(["NO", "NAN", "NONE", ""])].copy()
         
         if df_pendientes.empty:
@@ -267,7 +262,6 @@ elif opcion == "📅 Calendario / Flujo de Pagos":
             df_pendientes["Fecha Acreditacion"] = pd.to_datetime(df_pendientes["Fecha Acreditacion"])
             df_pendientes["Monto"] = pd.to_numeric(df_pendientes["Monto"], errors="coerce").fillna(0)
 
-            # Modos de visualización
             modo_vista = st.radio(
                 "Seleccione el modo de visualización:",
                 ["🗓️ Almanaque Mensual", "📊 Gráficos y Listado Diario"],
@@ -276,9 +270,6 @@ elif opcion == "📅 Calendario / Flujo de Pagos":
 
             st.divider()
 
-            # -----------------------------------------------------------------
-            # VISTA 1: ALMANAQUE MENSUAL
-            # -----------------------------------------------------------------
             if modo_vista == "🗓️ Almanaque Mensual":
                 col_m, col_a, _ = st.columns([2, 2, 4])
                 with col_m:
@@ -349,9 +340,6 @@ elif opcion == "📅 Calendario / Flujo de Pagos":
 
                                 st.markdown(html_contenido, unsafe_allow_html=True)
 
-            # -----------------------------------------------------------------
-            # VISTA 2: GRÁFICOS Y DETALLE DIARIO
-            # -----------------------------------------------------------------
             elif modo_vista == "📊 Gráficos y Listado Diario":
                 monto_total_pendiente = df_pendientes["Monto"].sum()
                 cant_cheques_pendientes = len(df_pendientes)
@@ -405,10 +393,7 @@ elif opcion == "📊 Informes / Descargar Excel":
         df = conn.read(ttl=0)
 
         if not df.empty:
-            # 1. Convertir la fecha de acreditación a formato Datetime para operar
             df["Fecha_DT"] = pd.to_datetime(df["Fecha Acreditacion"], errors="coerce")
-
-            # 2. Calcular fecha "Desde" por defecto: primer cheque pendiente (Cobrado != SI)
             df_pendientes = df[~df["Cobrado"].astype(str).str.upper().isin(["SI"])]
 
             if not df_pendientes.empty and df_pendientes["Fecha_DT"].notna().any():
@@ -418,7 +403,6 @@ elif opcion == "📊 Informes / Descargar Excel":
 
             fecha_hasta_defecto = date.today()
 
-            # 3. Filtros en Pantalla (Fechas y Estado)
             col1, col2, col3 = st.columns([2, 2, 3])
             with col1:
                 fecha_desde = st.date_input("Fecha Desde:", value=fecha_desde_defecto, format="DD/MM/YYYY")
@@ -428,33 +412,27 @@ elif opcion == "📊 Informes / Descargar Excel":
                 filtro_estado = st.selectbox(
                     "Estado a Consultar:",
                     ["🔴 Pendientes / Deuda (NO)", "📋 Todos los Cheques", "🟢 Cobrados (SI)"],
-                    index=0  # Por defecto selecciona Pendientes
+                    index=0
                 )
 
-            # 4. Aplicar Filtro de Fechas
             mask_fechas = (df["Fecha_DT"].dt.date >= fecha_desde) & (df["Fecha_DT"].dt.date <= fecha_hasta)
             df_informe = df[mask_fechas].copy()
 
-            # 5. Aplicar Filtro de Estado
             if filtro_estado == "🔴 Pendientes / Deuda (NO)":
                 df_informe = df_informe[~df_informe["Cobrado"].astype(str).str.upper().isin(["SI"])]
             elif filtro_estado == "🟢 Cobrados (SI)":
                 df_informe = df_informe[df_informe["Cobrado"].astype(str).str.upper().isin(["SI"])]
 
-            # Quitar la columna auxiliar de fecha
             df_informe = df_informe.drop(columns=["Fecha_DT"])
 
-            # 6. Cálculo de Totales y Métricas Visuales
             st.divider()
             
-            # Asegurar que Monto sea numérico para sumar
             df_informe["Monto_Num"] = pd.to_numeric(df_informe["Monto"], errors="coerce").fillna(0)
             monto_total_informe = df_informe["Monto_Num"].sum()
 
             m1, m2 = st.columns(2)
             m1.metric("Cantidad de Cheques", f"{len(df_informe)} registros")
             
-            # Mostrar etiqueta personalizada según el filtro elegido
             if filtro_estado == "🔴 Pendientes / Deuda (NO)":
                 m2.metric("💸 Total Deuda Pendiente", f"${monto_total_informe:,.2f}")
             elif filtro_estado == "🟢 Cobrados (SI)":
@@ -462,20 +440,16 @@ elif opcion == "📊 Informes / Descargar Excel":
             else:
                 m2.metric("Monto Total en Rango", f"${monto_total_informe:,.2f}")
 
-            # Eliminar la columna temporal de monto numérico para la tabla
             df_informe_vista = df_informe.drop(columns=["Monto_Num"])
 
-            # 7. Vista previa en pantalla
             st.subheader(f"📋 Vista Previa ({len(df_informe)} cheques)")
             st.dataframe(df_informe_vista, use_container_width=True, hide_index=True)
 
-            # 8. Preparación y Botón de Descargar Excel
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
                 df_informe_vista.to_excel(writer, index=False, sheet_name="Informe_Cheques")
             data_excel = output.getvalue()
 
-            # Nombre de archivo dinámico según filtro
             tag_estado = "deuda_pendiente" if "Pendientes" in filtro_estado else ("cobrados" if "Cobrados" in filtro_estado else "todos")
             
             st.download_button(
@@ -490,6 +464,7 @@ elif opcion == "📊 Informes / Descargar Excel":
 
     except Exception as e:
         st.error(f"Error al generar el informe: {e}")
+
 # =============================================================================
 # OPCIÓN 5: ENSAYO Y CARGA MASIVA DE CHEQUES (INTELIGENTE)
 # =============================================================================
@@ -503,7 +478,6 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
         df_existente = pd.DataFrame()
         st.warning("No se pudieron cargar los cheques existentes para verificar carga diaria.")
 
-    # Preparar df existente para consulta de acumulado por día
     if not df_existente.empty and "Fecha Acreditacion" in df_existente.columns:
         df_existente["Fecha_DT"] = pd.to_datetime(df_existente["Fecha Acreditacion"], errors="coerce").dt.date
         df_existente["Monto_Num"] = pd.to_numeric(df_existente["Monto"], errors="coerce").fillna(0)
@@ -531,27 +505,30 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
     with col6:
         dias_max = st.number_input("Días Máximo (ej: 60):", min_value=1, max_value=365, value=60)
 
-    # --- NUEVA SECCIÓN DE CONFIGURACIÓN DE NÚMEROS ---
+    # --- CONFIGURACIÓN Y GENERACIÓN DINÁMICA DE NÚMEROS ---
     usar_numeros_manuales = st.checkbox("⚠️ ¿Usar números de cheque discontinuos / no consecutivos (ej: saltar anulados)?")
 
     prefijo = "P" if tipo_cheque_sim == "Cheque físico" else ""
 
     if not usar_numeros_manuales:
-        nro_inicial_sim = st.number_input("N° Cheque Inicial (Consecutivos):", min_value=1, value=5424)
+        # Se agrega key 'nro_inicial_sim' para forzar reactividad en el estado
+        nro_inicial_sim = st.number_input("N° Cheque Inicial (Consecutivos):", min_value=1, value=5424, key="nro_inicial_sim")
         # Generar lista correlativa
         lista_numeros_cheques = [f"{prefijo}{int(nro_inicial_sim) + i}" for i in range(cant_cheques)]
+        tag_key_numeros = f"consecutivo_{nro_inicial_sim}"
     else:
         st.info("💡 Ingrese los números de cheque separados por coma. Ejemplo: `5424, 5425, 5428`")
         lista_ingresada = st.text_input(
             "Números de cheque específicos:", 
             placeholder="Ej: 0005424, 0005425, 0005428",
-            help="Escriba exactamente los números de los cheques que va a utilizar."
+            help="Escriba exactamente los números de los cheques que va a utilizar.",
+            key="lista_manual_input"
         )
+        tag_key_numeros = f"manual_{lista_ingresada.strip()}"
         
         # Procesar lista ingresada o poner valores por defecto si está vacía
         if lista_ingresada.strip():
             partes = [p.strip() for p in lista_ingresada.split(",") if p.strip()]
-            # Completar o recortar según la cantidad de cheques especificada
             lista_numeros_cheques = []
             for i in range(cant_cheques):
                 if i < len(partes):
@@ -605,22 +582,18 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
     cheques_generados = []
     hoy = date.today()
 
-    # Función auxiliar para obtener días hábiles (Lunes a Viernes)
     def es_dia_habil(f):
         return f.weekday() < 5
 
-    # Calcular la ventana de días para cada cheque
     rango_total = max(1, dias_max - dias_min)
     paso_dias = rango_total / cant_cheques if cant_cheques > 0 else 0
 
     for i in range(cant_cheques):
-        # 1. Definir rango de búsqueda en días para este cheque específico
         d_inicio = int(dias_min + (i * paso_dias))
         d_fin = int(dias_min + ((i + 1) * paso_dias))
         if d_fin <= d_inicio:
             d_fin = d_inicio + 1
 
-        # 2. Buscar todas las fechas hábiles dentro del rango
         fechas_habiles_rango = []
         for d in range(d_inicio, d_fin + 1):
             f_candidate = hoy + pd.Timedelta(days=d)
@@ -633,7 +606,6 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
                 f_candidate += pd.Timedelta(days=1)
             fechas_habiles_rango.append(f_candidate)
 
-        # 3. Determinar la fecha más "liviana"
         mejor_fecha = fechas_habiles_rango[0]
         menor_monto = float('inf')
 
@@ -643,8 +615,7 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
                 menor_monto = acumulado_f
                 mejor_fecha = f
 
-        # 4. Construir las opciones del desplegable semanal
-        inicio_semana = mejor_fecha - pd.Timedelta(days=mejor_fecha.weekday()) # Lunes
+        inicio_semana = mejor_fecha - pd.Timedelta(days=mejor_fecha.weekday())
         dias_semana_nombres = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]
         opciones_semana = []
         idx_defecto = 0
@@ -661,18 +632,18 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
             if f_semana == mejor_fecha:
                 idx_defecto = day_idx
 
-        # Renderizar la fila del cheque
         col_num, col_chq_info, col_select, col_info = st.columns([2, 1.5, 3.5, 2])
 
         monto_chq = monto_propuesto if i < cant_cheques - 1 else max(0.0, monto_saldo)
         nro_sugerido = lista_numeros_cheques[i] if i < len(lista_numeros_cheques) else f"{prefijo}{5424 + i}"
 
         with col_num:
-            # Permitir edición individual directa del número de cheque por si se necesita ajustar al instante
+            # 💡 Clave dinámica basada en 'tag_key_numeros' y el tipo de cheque
+            # Esto resetea el valor visual al cambiar la entrada superior pero mantiene editable cada casilla
             nro_final_cheque = st.text_input(
                 f"N° Cheque #{i+1}:", 
                 value=nro_sugerido, 
-                key=f"input_nro_chk_{i}"
+                key=f"input_nro_chk_{i}_{tag_key_numeros}_{prefijo}"
             )
 
         with col_chq_info:
@@ -735,7 +706,6 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
             try:
                 data_existente = conn.read(ttl=0)
 
-                # Validar duplicados
                 if not data_existente.empty and "Nro Cheque" in data_existente.columns:
                     cheques_existentes = data_existente["Nro Cheque"].astype(str).str.strip().tolist()
                     duplicados = [c["Nro Cheque"] for c in cheques_generados if c["Nro Cheque"] in cheques_existentes]
@@ -744,7 +714,6 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
                         st.warning(f"⚠️ No se pudo realizar la carga. Los siguientes números de cheque ya existen en el sistema: **{', '.join(duplicados)}**")
                         st.stop()
 
-                # Carga masiva
                 df_actualizado = pd.concat([data_existente, df_simulacion], ignore_index=True)
                 conn.update(data=df_actualizado)
 
@@ -753,4 +722,3 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
 
             except Exception as e:
                 st.error(f"Error al guardar el lote en Google Sheets: {e}")
-                
