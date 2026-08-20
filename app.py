@@ -511,9 +511,7 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
     prefijo = "P" if tipo_cheque_sim == "Cheque físico" else ""
 
     if not usar_numeros_manuales:
-        # Se agrega key 'nro_inicial_sim' para forzar reactividad en el estado
         nro_inicial_sim = st.number_input("N° Cheque Inicial (Consecutivos):", min_value=1, value=5424, key="nro_inicial_sim")
-        # Generar lista correlativa
         lista_numeros_cheques = [f"{prefijo}{int(nro_inicial_sim) + i}" for i in range(cant_cheques)]
         tag_key_numeros = f"consecutivo_{nro_inicial_sim}"
     else:
@@ -526,7 +524,6 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
         )
         tag_key_numeros = f"manual_{lista_ingresada.strip()}"
         
-        # Procesar lista ingresada o poner valores por defecto si está vacía
         if lista_ingresada.strip():
             partes = [p.strip() for p in lista_ingresada.split(",") if p.strip()]
             lista_numeros_cheques = []
@@ -538,7 +535,6 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
         else:
             lista_numeros_cheques = [f"{prefijo}{5424 + i}" for i in range(cant_cheques)]
 
-    # Validación de rango de días
     if dias_max < dias_min:
         st.error("⚠️ El 'Días Máximo' debe ser mayor o igual al 'Días Mínimo'.")
 
@@ -574,10 +570,10 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
     st.divider()
 
     # -------------------------------------------------------------------------
-    # PASO 2: ASIGNACIÓN DE FECHAS HÁBILES Y DESPLEGABLE SEMANAL
+    # PASO 2: ASIGNACIÓN DE FECHAS HÁBILES Y DESPLEGABLE SEMANAL / MANUAL
     # -------------------------------------------------------------------------
-    st.subheader("2️⃣ Recomendación de Días Hábiles y Ajuste Semanal")
-    st.caption("La app busca automáticamente el día hábil con menor carga dentro del rango. Puede modificar el número de cheque o el día de la semana si lo requiere.")
+    st.subheader("2️⃣ Recomendación de Días Hábiles y Ajuste Semanal / Personalizado")
+    st.caption("La app busca automáticamente el día hábil con menor carga dentro del rango. Puede seleccionar otra fecha manualmente con el calendario si así lo requiere.")
 
     cheques_generados = []
     hoy = date.today()
@@ -632,14 +628,16 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
             if f_semana == mejor_fecha:
                 idx_defecto = day_idx
 
+        # Opción extra para selección manual por calendario
+        opcion_manual_str = "📅 Otra fecha (Selección Manual con Calendario)..."
+        lista_opciones_combo = [op[0] for op in opciones_semana] + [opcion_manual_str]
+
         col_num, col_chq_info, col_select, col_info = st.columns([2, 1.5, 3.5, 2])
 
         monto_chq = monto_propuesto if i < cant_cheques - 1 else max(0.0, monto_saldo)
         nro_sugerido = lista_numeros_cheques[i] if i < len(lista_numeros_cheques) else f"{prefijo}{5424 + i}"
 
         with col_num:
-            # 💡 Clave dinámica basada en 'tag_key_numeros' y el tipo de cheque
-            # Esto resetea el valor visual al cambiar la entrada superior pero mantiene editable cada casilla
             nro_final_cheque = st.text_input(
                 f"N° Cheque #{i+1}:", 
                 value=nro_sugerido, 
@@ -653,12 +651,23 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
         with col_select:
             opcion_elegida = st.selectbox(
                 f"Seleccione día para Cheque #{i+1}:",
-                options=[op[0] for op in opciones_semana],
+                options=lista_opciones_combo,
                 index=idx_defecto,
                 key=f"select_dia_{i}"
             )
-            fecha_elegi = opciones_semana[[op[0] for op in opciones_semana].index(opcion_elegida)][1]
-            monto_dia_elegido = opciones_semana[[op[0] for op in opciones_semana].index(opcion_elegida)][2]
+
+            # Lógica cuando elige opción manual vs lista semanal
+            if opcion_elegida == opcion_manual_str:
+                fecha_elegi = st.date_input(
+                    f"📆 Fecha personalizada Cheque #{i+1}:",
+                    value=mejor_fecha,
+                    key=f"date_manual_{i}"
+                )
+                monto_dia_elegido = df_existente[df_existente["Fecha_DT"] == fecha_elegi]["Monto_Num"].sum()
+            else:
+                idx_sel = [op[0] for op in opciones_semana].index(opcion_elegida)
+                fecha_elegi = opciones_semana[idx_sel][1]
+                monto_dia_elegido = opciones_semana[idx_sel][2]
 
         with col_info:
             if monto_dia_elegido == 0:
@@ -722,3 +731,4 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
 
             except Exception as e:
                 st.error(f"Error al guardar el lote en Google Sheets: {e}")
+                
