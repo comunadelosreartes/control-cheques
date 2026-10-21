@@ -44,210 +44,23 @@ st.set_page_config(page_title="Gestión de Cheques", page_icon="💳", layout="w
 # Inicializar conexión con Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# Menú lateral para navegar entre secciones
+# Menú lateral para navegar entre secciones (Inicia en Calendario / Flujo de Pagos por defecto)
 st.sidebar.title("📌 Menú Principal")
 opcion = st.sidebar.radio(
     "Seleccione una opción:",
     [
-        "✍️ Ingresar Cheque", 
-        "🔍 Gestionar / Marcar Cobrados", 
         "📅 Calendario / Flujo de Pagos",
-        "📊 Informes / Descargar Excel",
-        "🧮 Ensayo y Carga Masiva"
+        "🧮 Ensayo y Carga Masiva",
+        "🔍 Gestionar / Marcar Cobrados", 
+        "📋 Historial de Cheques",
+        "📊 Informes / Descargar Excel"
     ]
 )
 
 # =============================================================================
-# OPCIÓN 1: INGRESAR NUEVO CHEQUE
+# OPCIÓN 1: CALENDARIO Y FLUJO DE PAGOS (MÓDULO INICIAL POR DEFECTO)
 # =============================================================================
-if opcion == "✍️ Ingresar Cheque":
-    st.title("💳 Ingreso de Nuevos Cheques")
-    st.subheader("Complete los datos del cheque:")
-
-    # Formulario de ingreso
-    with st.form("form_cheque", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            fecha_emision = st.date_input("Fecha de Emisión", value=date.today())
-            tipo_cheque = st.selectbox("Tipo de Cheque", ["Cheque físico", "echeq"])
-            cobrado = st.selectbox("¿Cobrado?", ["NO", "SI"])
-            
-        with col2:
-            fecha_acreditacion = st.date_input("Fecha de Acreditación", value=date.today())
-            nro_cheque = st.text_input("N° de Cheque", placeholder="Ej: 00012345")
-            monto = st.number_input("Monto ($)", min_value=0.0, step=100.0, format="%.2f")
-        
-        beneficiario = st.text_input("Beneficiario")
-        submit = st.form_submit_button("Guardar Cheque")
-
-    # Procesar el envío del formulario
-    if submit:
-        if not nro_cheque.strip():
-            st.error("Por favor, ingrese el número de cheque.")
-        elif not beneficiario.strip():
-            st.error("Por favor, ingrese el nombre del beneficiario.")
-        elif monto <= 0:
-            st.error("El monto debe ser mayor a cero.")
-        else:
-            try:
-                # 1. Leer los datos existentes de la planilla
-                data_existente = conn.read(ttl=0)
-
-                # ⚠️ VALIDACIÓN DE DUPLICADOS ⚠️
-                if not data_existente.empty and "Nro Cheque" in data_existente.columns:
-                    # Convertimos a texto para comparar exactamente igual
-                    cheques_existentes = (
-                        data_existente["Nro Cheque"].astype(str).str.strip().tolist()
-                    )
-
-                    if nro_cheque.strip() in cheques_existentes:
-                        st.warning(
-                            f"⚠️ **¡Alerta!** El cheque N° **{nro_cheque.strip()}** ya existe en el sistema. Por favor, verifique el número."
-                        )
-                        st.stop()  # Detiene el guardado para evitar duplicar datos
-
-                # 2. Crear el nuevo registro
-                nuevo_cheque = pd.DataFrame(
-                    [
-                        {
-                            "Fecha Emision": fecha_emision.strftime("%Y-%m-%d"),
-                            "Fecha Acreditacion": fecha_acreditacion.strftime(
-                                "%Y-%m-%d"
-                            ),
-                            "Nro Cheque": nro_cheque.strip(),
-                            "Beneficiario": beneficiario.strip(),
-                            "Tipo": tipo_cheque,
-                            "Monto": monto,
-                            "Cobrado": cobrado,
-                        }
-                    ]
-                )
-
-                # 3. Concatenar el nuevo registro
-                df_actualizado = pd.concat(
-                    [data_existente, nuevo_cheque], ignore_index=True
-                )
-
-                # 4. Enviar a Google Sheets
-                conn.update(data=df_actualizado)
-
-                st.success(
-                    f"¡Cheque N° **{nro_cheque}** guardado con éxito para **{beneficiario}**!"
-                )
-            except Exception as e:
-                st.error(f"Error al guardar en Google Sheets: {e}")
-
-    # Tabla de registros cargados
-    st.divider()
-    st.subheader("📋 Historial Completo de Cheques")
-    try:
-        datos_actuales = conn.read(ttl=0)
-        st.dataframe(datos_actuales, use_container_width=True)
-    except Exception:
-        st.info("Aún no se han podido cargar los datos de la planilla.")
-
-# =============================================================================
-# OPCIÓN 2: GESTIONAR / MARCAR COBRADOS
-# =============================================================================
-elif opcion == "🔍 Gestionar / Marcar Cobrados":
-    st.title("🔍 Buscador y Gestión de Cobros")
-    st.caption("Filtre cheques por número, beneficiario, estado o rango de monto y actualice su estado a 'SI' o 'NO'.")
-    
-    try:
-        df = conn.read(ttl=0)
-        
-        # --- FILTROS SUPERIORES ---
-        col_busqueda, col_filtro = st.columns([3, 1])
-        with col_busqueda:
-            busqueda = st.text_input("🔎 Buscar por N° de Cheque o Beneficiario:", placeholder="Escriba el número o nombre...")
-        with col_filtro:
-            estado_filtro = st.selectbox("Filtrar Estado:", ["Pendientes (NO)", "Todos", "Cobrados (SI)"])
-
-        # --- FILTRO POR RANGO DE MONTO ---
-        with st.expander("💵 Filtrar por Rango de Monto ($)", expanded=False):
-            monto_temp = pd.to_numeric(df["Monto"], errors="coerce").fillna(0.0) if not df.empty else pd.Series([0.0])
-            val_min = float(monto_temp.min())
-            val_max = float(monto_temp.max()) if monto_temp.max() > 0 else 1000000.0
-
-            col_m_desde, col_m_hasta = st.columns(2)
-            with col_m_desde:
-                monto_desde = st.number_input(
-                    "Monto Desde ($):", 
-                    min_value=0.0, 
-                    value=0.0, 
-                    step=10000.0, 
-                    format="%.2f"
-                )
-            with col_m_hasta:
-                monto_hasta = st.number_input(
-                    "Monto Hasta ($):", 
-                    min_value=0.0, 
-                    value=val_max, 
-                    step=10000.0, 
-                    format="%.2f"
-                )
-
-        df_filtrado = df.copy()
-        
-        # 1. Filtro por Estado
-        if estado_filtro == "Pendientes (NO)":
-            df_filtrado = df_filtrado[df_filtrado["Cobrado"].astype(str).str.upper().isin(["NO", "NAN", "NONE", ""])]
-        elif estado_filtro == "Cobrados (SI)":
-            df_filtrado = df_filtrado[df_filtrado["Cobrado"].astype(str).str.upper() == "SI"]
-
-        # 2. Filtro por Texto (N° de Cheque o Beneficiario)
-        if busqueda.strip():
-            mask_num = df_filtrado["Nro Cheque"].astype(str).str.contains(busqueda, case=False, na=False)
-            mask_ben = df_filtrado["Beneficiario"].astype(str).str.contains(busqueda, case=False, na=False)
-            df_filtrado = df_filtrado[mask_num | mask_ben]
-
-        # 3. Filtro por Rango de Monto
-        df_filtrado["_Monto_Num"] = pd.to_numeric(df_filtrado["Monto"], errors="coerce").fillna(0.0)
-        
-        if monto_hasta > 0:
-            df_filtrado = df_filtrado[
-                (df_filtrado["_Monto_Num"] >= monto_desde) & 
-                (df_filtrado["_Monto_Num"] <= monto_hasta)
-            ]
-        else:
-            df_filtrado = df_filtrado[df_filtrado["_Monto_Num"] >= monto_desde]
-
-        # Eliminar columna auxiliar
-        df_filtrado = df_filtrado.drop(columns=["_Monto_Num"])
-
-        st.subheader(f"Resultados ({len(df_filtrado)} cheques encontrados)")
-
-        if df_filtrado.empty:
-            st.info("No se encontraron cheques con los criterios de búsqueda ingresados.")
-        else:
-            df_editable = st.data_editor(
-                df_filtrado,
-                column_config={
-                    "Cobrado": st.column_config.SelectboxColumn(
-                        "¿Cobrado?",
-                        options=["NO", "SI"],
-                        required=True,
-                    )
-                },
-                disabled=["Fecha Emision", "Fecha Acreditacion", "Nro Cheque", "Beneficiario", "Tipo", "Monto"],
-                hide_index=True,
-                use_container_width=True
-            )
-
-            if st.button("💾 Guardar Cambios en Google Sheets", type="primary"):
-                df.update(df_editable)
-                conn.update(data=df)
-                st.success("¡Estados de cobro actualizados correctamente!")
-                st.rerun()
-
-    except Exception as e:
-        st.error(f"Error al procesar la solicitud: {e}")
-
-# =============================================================================
-# OPCIÓN 3: CALENDARIO Y FLUJO DE PAGOS
-# =============================================================================
-elif opcion == "📅 Calendario / Flujo de Pagos":
+if opcion == "📅 Calendario / Flujo de Pagos":
     st.title("📅 Calendario de Vencimientos y Flujo de Pagos")
     st.caption("Analice la carga diaria de cheques tanto en vista de almanaque mensual como en gráficos de tendencia.")
 
@@ -383,90 +196,7 @@ elif opcion == "📅 Calendario / Flujo de Pagos":
         st.error(f"Error al generar la sección de calendario: {e}")
 
 # =============================================================================
-# OPCIÓN 4: INFORMES Y DESCARGA EN EXCEL
-# =============================================================================
-elif opcion == "📊 Informes / Descargar Excel":
-    st.title("📊 Generador de Informes y Control de Deuda")
-    st.caption("Filtre por rango de fechas y estado de cobro para consultar la deuda pendiente y exportar a Excel.")
-
-    try:
-        df = conn.read(ttl=0)
-
-        if not df.empty:
-            df["Fecha_DT"] = pd.to_datetime(df["Fecha Acreditacion"], errors="coerce")
-            df_pendientes = df[~df["Cobrado"].astype(str).str.upper().isin(["SI"])]
-
-            if not df_pendientes.empty and df_pendientes["Fecha_DT"].notna().any():
-                fecha_desde_defecto = df_pendientes["Fecha_DT"].min().date()
-            else:
-                fecha_desde_defecto = date.today()
-
-            fecha_hasta_defecto = date.today()
-
-            col1, col2, col3 = st.columns([2, 2, 3])
-            with col1:
-                fecha_desde = st.date_input("Fecha Desde:", value=fecha_desde_defecto, format="DD/MM/YYYY")
-            with col2:
-                fecha_hasta = st.date_input("Fecha Hasta:", value=fecha_hasta_defecto, format="DD/MM/YYYY")
-            with col3:
-                filtro_estado = st.selectbox(
-                    "Estado a Consultar:",
-                    ["🔴 Pendientes / Deuda (NO)", "📋 Todos los Cheques", "🟢 Cobrados (SI)"],
-                    index=0
-                )
-
-            mask_fechas = (df["Fecha_DT"].dt.date >= fecha_desde) & (df["Fecha_DT"].dt.date <= fecha_hasta)
-            df_informe = df[mask_fechas].copy()
-
-            if filtro_estado == "🔴 Pendientes / Deuda (NO)":
-                df_informe = df_informe[~df_informe["Cobrado"].astype(str).str.upper().isin(["SI"])]
-            elif filtro_estado == "🟢 Cobrados (SI)":
-                df_informe = df_informe[df_informe["Cobrado"].astype(str).str.upper().isin(["SI"])]
-
-            df_informe = df_informe.drop(columns=["Fecha_DT"])
-
-            st.divider()
-            
-            df_informe["Monto_Num"] = pd.to_numeric(df_informe["Monto"], errors="coerce").fillna(0)
-            monto_total_informe = df_informe["Monto_Num"].sum()
-
-            m1, m2 = st.columns(2)
-            m1.metric("Cantidad de Cheques", f"{len(df_informe)} registros")
-            
-            if filtro_estado == "🔴 Pendientes / Deuda (NO)":
-                m2.metric("💸 Total Deuda Pendiente", f"${monto_total_informe:,.2f}")
-            elif filtro_estado == "🟢 Cobrados (SI)":
-                m2.metric("✅ Total Cobrado", f"${monto_total_informe:,.2f}")
-            else:
-                m2.metric("Monto Total en Rango", f"${monto_total_informe:,.2f}")
-
-            df_informe_vista = df_informe.drop(columns=["Monto_Num"])
-
-            st.subheader(f"📋 Vista Previa ({len(df_informe)} cheques)")
-            st.dataframe(df_informe_vista, use_container_width=True, hide_index=True)
-
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-                df_informe_vista.to_excel(writer, index=False, sheet_name="Informe_Cheques")
-            data_excel = output.getvalue()
-
-            tag_estado = "deuda_pendiente" if "Pendientes" in filtro_estado else ("cobrados" if "Cobrados" in filtro_estado else "todos")
-            
-            st.download_button(
-                label="📥 Descargar Informe en Excel (.xlsx)",
-                data=data_excel,
-                file_name=f"informe_{tag_estado}_{fecha_desde}_al_{fecha_hasta}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                type="primary"
-            )
-        else:
-            st.info("Aún no hay cheques registrados en la planilla.")
-
-    except Exception as e:
-        st.error(f"Error al generar el informe: {e}")
-
-# =============================================================================
-# OPCIÓN 5: ENSAYO Y CARGA MASIVA DE CHEQUES (INTELIGENTE)
+# OPCIÓN 2: ENSAYO Y CARGA MASIVA DE CHEQUES (INTELIGENTE)
 # =============================================================================
 elif opcion == "🧮 Ensayo y Carga Masiva":
     st.title("🧮 Ensayo y Planificación Inteligente de Cheques")
@@ -731,4 +461,199 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
 
             except Exception as e:
                 st.error(f"Error al guardar el lote en Google Sheets: {e}")
-                
+
+# =============================================================================
+# OPCIÓN 3: GESTIONAR / MARCAR COBRADOS
+# =============================================================================
+elif opcion == "🔍 Gestionar / Marcar Cobrados":
+    st.title("🔍 Buscador y Gestión de Cobros")
+    st.caption("Filtre cheques por número, beneficiario, estado o rango de monto y actualice su estado a 'SI' o 'NO'.")
+    
+    try:
+        df = conn.read(ttl=0)
+        
+        # --- FILTROS SUPERIORES ---
+        col_busqueda, col_filtro = st.columns([3, 1])
+        with col_busqueda:
+            busqueda = st.text_input("🔎 Buscar por N° de Cheque o Beneficiario:", placeholder="Escriba el número o nombre...")
+        with col_filtro:
+            estado_filtro = st.selectbox("Filtrar Estado:", ["Pendientes (NO)", "Todos", "Cobrados (SI)"])
+
+        # --- FILTRO POR RANGO DE MONTO ---
+        with st.expander("💵 Filtrar por Rango de Monto ($)", expanded=False):
+            monto_temp = pd.to_numeric(df["Monto"], errors="coerce").fillna(0.0) if not df.empty else pd.Series([0.0])
+            val_min = float(monto_temp.min())
+            val_max = float(monto_temp.max()) if monto_temp.max() > 0 else 1000000.0
+
+            col_m_desde, col_m_hasta = st.columns(2)
+            with col_m_desde:
+                monto_desde = st.number_input(
+                    "Monto Desde ($):", 
+                    min_value=0.0, 
+                    value=0.0, 
+                    step=10000.0, 
+                    format="%.2f"
+                )
+            with col_m_hasta:
+                monto_hasta = st.number_input(
+                    "Monto Hasta ($):", 
+                    min_value=0.0, 
+                    value=val_max, 
+                    step=10000.0, 
+                    format="%.2f"
+                )
+
+        df_filtrado = df.copy()
+        
+        # 1. Filtro por Estado
+        if estado_filtro == "Pendientes (NO)":
+            df_filtrado = df_filtrado[df_filtrado["Cobrado"].astype(str).str.upper().isin(["NO", "NAN", "NONE", ""])]
+        elif estado_filtro == "Cobrados (SI)":
+            df_filtrado = df_filtrado[df_filtrado["Cobrado"].astype(str).str.upper() == "SI"]
+
+        # 2. Filtro por Texto (N° de Cheque o Beneficiario)
+        if busqueda.strip():
+            mask_num = df_filtrado["Nro Cheque"].astype(str).str.contains(busqueda, case=False, na=False)
+            mask_ben = df_filtrado["Beneficiario"].astype(str).str.contains(busqueda, case=False, na=False)
+            df_filtrado = df_filtrado[mask_num | mask_ben]
+
+        # 3. Filtro por Rango de Monto
+        df_filtrado["_Monto_Num"] = pd.to_numeric(df_filtrado["Monto"], errors="coerce").fillna(0.0)
+        
+        if monto_hasta > 0:
+            df_filtrado = df_filtrado[
+                (df_filtrado["_Monto_Num"] >= monto_desde) & 
+                (df_filtrado["_Monto_Num"] <= monto_hasta)
+            ]
+        else:
+            df_filtrado = df_filtrado[df_filtrado["_Monto_Num"] >= monto_desde]
+
+        # Eliminar columna auxiliar
+        df_filtrado = df_filtrado.drop(columns=["_Monto_Num"])
+
+        st.subheader(f"Resultados ({len(df_filtrado)} cheques encontrados)")
+
+        if df_filtrado.empty:
+            st.info("No se encontraron cheques con los criterios de búsqueda ingresados.")
+        else:
+            df_editable = st.data_editor(
+                df_filtrado,
+                column_config={
+                    "Cobrado": st.column_config.SelectboxColumn(
+                        "¿Cobrado?",
+                        options=["NO", "SI"],
+                        required=True,
+                    )
+                },
+                disabled=["Fecha Emision", "Fecha Acreditacion", "Nro Cheque", "Beneficiario", "Tipo", "Monto"],
+                hide_index=True,
+                use_container_width=True
+            )
+
+            if st.button("💾 Guardar Cambios en Google Sheets", type="primary"):
+                df.update(df_editable)
+                conn.update(data=df)
+                st.success("¡Estados de cobro actualizados correctamente!")
+                st.rerun()
+
+    except Exception as e:
+        st.error(f"Error al procesar la solicitud: {e}")
+
+# =============================================================================
+# OPCIÓN 4: HISTORIAL COMPLETO DE CHEQUES
+# =============================================================================
+elif opcion == "📋 Historial de Cheques":
+    st.title("📋 Historial Completo de Cheques")
+    st.caption("Consulte la totalidad de registros guardados en la planilla oficial de Google Sheets.")
+
+    try:
+        datos_actuales = conn.read(ttl=0)
+        if not datos_actuales.empty:
+            st.dataframe(datos_actuales, use_container_width=True, hide_index=True)
+        else:
+            st.info("Aún no hay cheques registrados en la planilla.")
+    except Exception as e:
+        st.error(f"Error al cargar la planilla de Google Sheets: {e}")
+
+# =============================================================================
+# OPCIÓN 5: INFORMES Y DESCARGA EN EXCEL
+# =============================================================================
+elif opcion == "📊 Informes / Descargar Excel":
+    st.title("📊 Generador de Informes y Control de Deuda")
+    st.caption("Filtre por rango de fechas y estado de cobro para consultar la deuda pendiente y exportar a Excel.")
+
+    try:
+        df = conn.read(ttl=0)
+
+        if not df.empty:
+            df["Fecha_DT"] = pd.to_datetime(df["Fecha Acreditacion"], errors="coerce")
+            df_pendientes = df[~df["Cobrado"].astype(str).str.upper().isin(["SI"])]
+
+            if not df_pendientes.empty and df_pendientes["Fecha_DT"].notna().any():
+                fecha_desde_defecto = df_pendientes["Fecha_DT"].min().date()
+            else:
+                fecha_desde_defecto = date.today()
+
+            fecha_hasta_defecto = date.today()
+
+            col1, col2, col3 = st.columns([2, 2, 3])
+            with col1:
+                fecha_desde = st.date_input("Fecha Desde:", value=fecha_desde_defecto, format="DD/MM/YYYY")
+            with col2:
+                fecha_hasta = st.date_input("Fecha Hasta:", value=fecha_hasta_defecto, format="DD/MM/YYYY")
+            with col3:
+                filtro_estado = st.selectbox(
+                    "Estado a Consultar:",
+                    ["🔴 Pendientes / Deuda (NO)", "📋 Todos los Cheques", "🟢 Cobrados (SI)"],
+                    index=0
+                )
+
+            mask_fechas = (df["Fecha_DT"].dt.date >= fecha_desde) & (df["Fecha_DT"].dt.date <= fecha_hasta)
+            df_informe = df[mask_fechas].copy()
+
+            if filtro_estado == "🔴 Pendientes / Deuda (NO)":
+                df_informe = df_informe[~df_informe["Cobrado"].astype(str).str.upper().isin(["SI"])]
+            elif filtro_estado == "🟢 Cobrados (SI)":
+                df_informe = df_informe[df_informe["Cobrado"].astype(str).str.upper().isin(["SI"])]
+
+            df_informe = df_informe.drop(columns=["Fecha_DT"])
+
+            st.divider()
+            
+            df_informe["Monto_Num"] = pd.to_numeric(df_informe["Monto"], errors="coerce").fillna(0)
+            monto_total_informe = df_informe["Monto_Num"].sum()
+
+            m1, m2 = st.columns(2)
+            m1.metric("Cantidad de Cheques", f"{len(df_informe)} registros")
+            
+            if filtro_estado == "🔴 Pendientes / Deuda (NO)":
+                m2.metric("💸 Total Deuda Pendiente", f"${monto_total_informe:,.2f}")
+            elif filtro_estado == "🟢 Cobrados (SI)":
+                m2.metric("✅ Total Cobrado", f"${monto_total_informe:,.2f}")
+            else:
+                m2.metric("Monto Total en Rango", f"${monto_total_informe:,.2f}")
+
+            df_informe_vista = df_informe.drop(columns=["Monto_Num"])
+
+            st.subheader(f"📋 Vista Previa ({len(df_informe)} cheques)")
+            st.dataframe(df_informe_vista, use_container_width=True, hide_index=True)
+
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+                df_informe_vista.to_excel(writer, index=False, sheet_name="Informe_Cheques")
+            data_excel = output.getvalue()
+
+            tag_estado = "deuda_pendiente" if "Pendientes" in filtro_estado else ("cobrados" if "Cobrados" in filtro_estado else "todos")
+            
+            st.download_button(
+                label="📥 Descargar Informe en Excel (.xlsx)",
+                data=data_excel,
+                file_name=f"informe_{tag_estado}_{fecha_desde}_al_{fecha_hasta}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary"
+            )
+        else:
+            st.info("Aún no hay cheques registrados en la planilla.")
+
+    except Exception as e:
+        st.error(f"Error al generar el informe: {e}")
