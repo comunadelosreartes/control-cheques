@@ -38,6 +38,77 @@ def check_password():
 if not check_password():
     st.stop()  # Detiene el resto de la app si no se autenticó
 # -------------------------------------------------------------
+# --- FUNCIÓN DE CONVERSIÓN DE NÚMEROS A LETRAS ---
+def numero_a_letras(numero):
+    UNIDADES = ['', 'UN', 'DOS', 'TRES', 'CUATRO', 'CINCO', 'SEIS', 'SIETE', 'OCHO', 'NUEVE']
+    DECENAS = ['', 'DIEZ', 'VEINTE', 'TREINTA', 'CUARENTA', 'CINCUENTA', 'SESENTA', 'SETENTA', 'OCHENTA', 'NOVENTA']
+    DIEZ_A_DIECINUEVE = ['DIEZ', 'ONCE', 'DOCE', 'TRECE', 'CATORCE', 'QUINCE', 'DIECISEIS', 'DIECISIETE', 'DIECIOCHO', 'DIECINUEVE']
+    VEINTE_A_VEINTINUEVE = ['VEINTE', 'VEINTIUNO', 'VEINTIDOS', 'VEINTITRES', 'VEINTICUATRO', 'VEINTICINCO', 'VEINTISEIS', 'VEINTISIETE', 'VEINTIOCHO', 'VEINTINUEVE']
+    CENTENAS = ['', 'CIENTO', 'DOSCIENTOS', 'TRESCIENTOS', 'CUATROCIENTOS', 'QUINIENTOS', 'SEISCIENTOS', 'SETECIENTOS', 'OCHO CIENTOS', 'NOVECIENTOS']
+
+    def _convertir_grupo(n):
+        if n == 0:
+            return ''
+        if n == 100:
+            return 'CIENTO'
+        c = n // 100
+        d = (n % 100) // 10
+        u = n % 10
+        
+        texto_c = CENTENAS[c] if c != 1 or n == 100 else 'CIEN'
+        texto_d = ''
+        
+        if 10 <= (n % 100) < 20:
+            texto_d = DIEZ_A_DIECINUEVE[n % 100 - 10]
+            return f"{texto_c} {texto_d}".strip()
+        elif 20 <= (n % 100) < 30:
+            texto_d = VEINTE_A_VEINTINUEVE[n % 100 - 20]
+            return f"{texto_c} {texto_d}".strip()
+        else:
+            if d > 0:
+                texto_d = DECENAS[d]
+                if u > 0:
+                    texto_d += f" Y {UNIDADES[u]}"
+            elif u > 0:
+                texto_d = UNIDADES[u]
+        
+        return f"{texto_c} {texto_d}".strip()
+
+    try:
+        monto_entero = int(numero)
+        centavos = int(round((numero - monto_entero) * 100))
+        if centavos < 0: centavos = 0
+    except:
+        return "PESOS CERO CON 00/100"
+
+    if monto_entero == 0:
+        return f"PESOS CERO CON {centavos:02d}/100"
+
+    millones = monto_entero // 1000000
+    resto_millones = monto_entero % 1000000
+    miles = resto_millones // 1000
+    unidades = resto_millones % 1000
+
+    partes = []
+
+    if millones > 0:
+        if millones == 1:
+            partes.append("UN MILLON")
+        else:
+            partes.append(f"{_convertir_grupo(millones)} MILLONES")
+
+    if miles > 0:
+        if miles == 1:
+            partes.append("UN MIL")
+        else:
+            partes.append(f"{_convertir_grupo(miles)} MIL")
+
+    if unidades > 0:
+        partes.append(_convertir_grupo(unidades))
+
+    texto_final = " ".join(partes)
+    return f"PESOS {texto_final} CON {centavos:02d}/100"
+# -------------------------------------------------------------
 # Configuración de la página
 st.set_page_config(page_title="Gestión de Cheques", page_icon="💳", layout="wide")
 
@@ -377,6 +448,9 @@ elif opcion == "🧮 Ensayo y Carga Masiva":
         with col_chq_info:
             st.markdown(f"**Monto:**")
             st.markdown(f"**${monto_chq:,.2f}**")
+            # --- IMPRIMIR MONTO EN LETRAS ---
+            monto_letras = numero_a_letras(monto_chq)
+            st.caption(f"_{monto_letras}_")
 
         with col_select:
             opcion_elegida = st.selectbox(
